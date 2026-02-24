@@ -169,25 +169,15 @@ function showLoading(){document.getElementById('loading').classList.add('on');}
 function hideLoading(){document.getElementById('loading').classList.remove('on');}
 function showApiErr(msg){var el=document.getElementById('api-err');el.textContent=msg;el.style.display='block';}
 
-function jsonp(url){
-  return new Promise(function(resolve,reject){
-    var cb='_dm'+Date.now()+'_'+Math.floor(Math.random()*9999);
-    window[cb]=function(data){delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);resolve(data);};
-    var s=document.createElement('script');
-    s.onerror=function(){delete window[cb];if(s.parentNode)s.parentNode.removeChild(s);reject(new Error('네트워크 오류'));};
-    s.src=url+(url.indexOf('?')>=0?'&':'?')+'callback='+cb;
-    document.head.appendChild(s);
-  });
-}
 function fetchDeals(){
-  return jsonp(API_URL+'?action=get&t='+Date.now());
+  return fetch(API_URL+'?action=get&t='+Date.now()).then(function(r){return r.json();});
 }
 function apiPost(payload){
   var action=payload.action;
   var url=API_URL+'?action='+action+'&t='+Date.now();
   if(action==='upsert')url+='&data='+encodeURIComponent(JSON.stringify(payload.deal));
   if(action==='delete')url+='&id='+encodeURIComponent(payload.id);
-  return jsonp(url);
+  return fetch(url).then(function(r){return r.json();});
 }
 
 async function init(){
