@@ -4,7 +4,7 @@
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <title>DealMap</title>
-<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=10cd7c6460b3ce22ca1693e6b0265809&autoload=false&libraries=services"></script>
+<script type="text/javascript" src="https://dapi.kakao.com/v2/maps/sdk.js?appkey=10cd7c6460b3ce22ca1693e6b0265809&autoload=false&libraries=services,clusterer"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sans KR',sans-serif;background:#060b14;color:#e2e8f0}
@@ -80,6 +80,23 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 #ffoot{display:flex;justify-content:flex-end;gap:10px;max-width:700px;margin:20px auto 0}
 #fcnl{padding:10px 22px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer;font-family:inherit}
 #fsav{padding:10px 28px;background:linear-gradient(135deg,#f59e0b,#d97706);border:none;border-radius:8px;color:#000;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit}
+/* Map address search bar */
+#map-srch-wrap{position:absolute;top:10px;left:310px;right:0;display:flex;justify-content:center;z-index:600;pointer-events:none}
+#map-srch-inner{display:flex;gap:6px;width:360px;max-width:calc(100% - 24px);pointer-events:auto}
+#map-srch-in{flex:1;background:rgba(8,14,24,.95);border:1px solid rgba(255,255,255,.15);border-radius:8px;padding:9px 14px;color:#e2e8f0;font-size:13px;font-family:inherit;outline:none;backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.5)}
+#map-srch-in:focus{border-color:rgba(245,158,11,.5)}
+#map-srch-in::placeholder{color:#475569}
+#map-srch-btn{padding:9px 14px;background:rgba(245,158,11,.15);border:1px solid rgba(245,158,11,.35);border-radius:8px;color:#f59e0b;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;white-space:nowrap;backdrop-filter:blur(8px);box-shadow:0 4px 20px rgba(0,0,0,.5)}
+#map-srch-btn:hover{background:rgba(245,158,11,.28)}
+/* Note textarea */
+.fi-note{resize:vertical;min-height:72px;line-height:1.6}
+.pop-note{width:100%;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:7px 10px;color:#cbd5e1;font-size:11px;font-family:inherit;outline:none;resize:vertical;min-height:60px;line-height:1.6;margin-top:4px}
+.pop-note:focus{border-color:rgba(245,158,11,.35)}
+/* Status filter chips */
+#status-filter{display:flex;gap:4px;flex-wrap:wrap;padding:7px 10px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0}
+.sf-chip{padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid transparent;background:rgba(255,255,255,.05);color:#64748b;transition:all .15s;white-space:nowrap}
+.sf-chip:hover{border-color:rgba(255,255,255,.15);color:#94a3b8}
+.sf-chip.active{border-color:currentColor}
 </style>
 </head>
 <body>
@@ -102,6 +119,7 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
       <input id="srch-in" placeholder="매물명, 주소, Contact 검색..."/>
       <button id="srch-clr">✕</button>
     </div>
+    <div id="status-filter"></div>
     <div id="list"></div>
   </div>
   <div id="map"></div>
@@ -135,6 +153,7 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
           <option value="중단">중단</option>
         </select>
       </div>
+      <div class="fg w2"><label class="fl">Note</label><textarea class="fi fi-note" id="f9" placeholder="메모를 입력하세요..."></textarea></div>
     </div>
     <div id="ffoot">
       <button id="fcnl">취소</button>
@@ -162,7 +181,7 @@ var RAW = [[" 0","대방동 406-8(영등포농협 신대방지구) 부지 개발
 var FK = ['id','Name','Address','Initial Date','Contact Point','Asking Price','Land Price/py','FAR/py','Land Area(py)'];
 var ALL = []; // Google Sheets 에서 로드
 
-var selId=null, editId=null, q='';
+var selId=null, editId=null, q='', statusFilter='';
 
 /* ── API 헬퍼 ── */
 function showLoading(){document.getElementById('loading').classList.add('on');}
@@ -180,6 +199,60 @@ function apiPost(payload){
   return fetch(url).then(function(r){return r.json();});
 }
 
+var _geo=null; // Kakao Geocoder instance (set after kakao.maps.load)
+var GEO_CACHE_KEY='dm_geo_v4_';
+function geocodeDeals(deals,done){
+  var CONCURRENT=5; // 병렬 동시 요청 수
+  var pending=[];
+  deals.forEach(function(d){
+    if(!d.Address||d.Address==='-')return;
+    var cached=null;
+    try{cached=JSON.parse(localStorage.getItem(GEO_CACHE_KEY+d.id));}catch(e){}
+    if(cached&&cached[0]){d._lat=cached[0];d._lng=cached[1];return;}
+    pending.push(d);
+  });
+  if(!pending.length){done();return;}
+  if(!_geo){done();return;}
+  var total=pending.length,completed=0,running=0,qIdx=0;
+  function saveCoord(d,lat,lng){d._lat=lat;d._lng=lng;try{localStorage.setItem(GEO_CACHE_KEY+d.id,JSON.stringify([lat,lng]));}catch(e){}}
+  function oneDone(){
+    running--;completed++;
+    if(completed%20===0)renderMarkers(); /* 20개마다 중간 재렌더 */
+    if(completed===total){renderMarkers();done();return;}
+    dispatch();
+  }
+  /* 이름에서 주소 힌트 추출: "이태원 128-12 공유오피스..." → "이태원 128-12" */
+  function addrHint(d){
+    var nm=d.Name||'';
+    /* 지번 패턴: 동명+번지 (예: 이태원 128-12, 갈월동 98-14) */
+    var m=nm.match(/[가-힣]+\s*\d+(?:-\d+)?/);
+    return m?m[0]+' '+(d.Address||''):(d.Address||'');
+  }
+  function geoOne(d){
+    running++;
+    /* 1차: 정형 주소 */
+    _geo.addressSearch(d.Address,function(r,s){
+      if(s==='OK'){saveCoord(d,parseFloat(r[0].y),parseFloat(r[0].x));oneDone();return;}
+      /* 2차: 이름에서 추출한 주소 힌트로 키워드 검색 */
+      var ps=new kakao.maps.services.Places();
+      var hint=addrHint(d);
+      ps.keywordSearch(hint,function(r2,s2){
+        if(s2==='OK'){saveCoord(d,parseFloat(r2[0].y),parseFloat(r2[0].x));oneDone();return;}
+        /* 3차: 이름 앞 3단어 + 주소 */
+        var q2=(d.Name||'').split(/\s+/).slice(0,3).join(' ')+' '+(d.Address||'');
+        ps.keywordSearch(q2,function(r3,s3){
+          if(s3==='OK')saveCoord(d,parseFloat(r3[0].y),parseFloat(r3[0].x));
+          oneDone();
+        });
+      });
+    });
+  }
+  function dispatch(){
+    while(running<CONCURRENT&&qIdx<total)geoOne(pending[qIdx++]);
+  }
+  dispatch();
+}
+
 async function init(){
   if(!API_URL){
     showApiErr('⚠ API_URL이 설정되지 않았습니다. dealmap-artifact.html 상단 API_URL 변수에 Apps Script 배포 URL을 입력해주세요.');
@@ -191,6 +264,9 @@ async function init(){
     if(data.error)throw new Error(data.error);
     ALL=data;
     renderList();renderMarkers();
+    hideLoading();
+    geocodeDeals(ALL,function(){renderMarkers();});
+    return;
   }catch(e){
     showApiErr('데이터 로드 실패: '+e.message);
   }
@@ -201,7 +277,14 @@ async function init(){
 var GU={'종로구':[37.573,126.9794],'중구':[37.5637,126.9979],'용산구':[37.5323,126.9906],'성동구':[37.5636,127.0369],'광진구':[37.5385,127.0826],'동대문구':[37.5744,127.0402],'중랑구':[37.5954,127.0933],'성북구':[37.6066,127.0176],'강북구':[37.6398,127.0257],'도봉구':[37.6688,127.0471],'노원구':[37.6542,127.0568],'은평구':[37.6176,126.9227],'서대문구':[37.5791,126.9368],'마포구':[37.5638,126.9084],'양천구':[37.517,126.8666],'강서구':[37.5509,126.8495],'구로구':[37.4954,126.8874],'금천구':[37.4519,126.9018],'영등포구':[37.5264,126.8962],'동작구':[37.5124,126.9393],'관악구':[37.4784,126.9516],'서초구':[37.4837,127.0324],'강남구':[37.4979,127.0276],'송파구':[37.5145,127.1059],'강동구':[37.5301,127.1238]};
 var GY={'성남시':[37.4196,127.1267],'수원시':[37.2636,127.0286],'용인시':[37.2411,127.1775],'고양시':[37.6584,126.832],'안양시':[37.3943,126.9568],'의정부시':[37.7382,127.0337],'남양주시':[37.6368,127.2161],'화성시':[37.1996,126.8312],'부천시':[37.5034,126.7659]};
 
-function getCoordsFallback(d){
+var _jc={};
+function jitter(id,i){
+  var k=id+'_'+i;
+  if(!_jc[k]){var h=0;for(var c=0;c<k.length;c++)h=(Math.imul(31,h)+k.charCodeAt(c))|0;_jc[k]=(((h>>>0)/0xFFFFFFFF)-0.5)*0.011;}
+  return _jc[k];
+}
+function getCoords(d){
+  if(d._lat&&d._lng)return[d._lat,d._lng];
   var a=d.Address,id=d.id;
   if(!a||a==='-')return null;
   function jt(s,i){var k=s+'_'+i,h=0;for(var c=0;c<k.length;c++)h=(Math.imul(31,h)+k.charCodeAt(c))|0;return(((h>>>0)/0xFFFFFFFF)-0.5)*0.011;}
@@ -251,7 +334,7 @@ function fmtDate(v){
 }
 
 /* ── Kakao map (initialized inside kakao.maps.load) ── */
-var map,_popEl,_popOverlay;
+var map,_popEl,_popOverlay,_clusterer;
 var markerGroup=[];
 var allMarkers={};
 var STATUS_COLORS={'검토중':'#3b82f6','실사중':'#8b5cf6','계약완료':'#10b981','거래완료':'#f59e0b','중단':'#ef4444','미분류':'#94a3b8'};
@@ -263,6 +346,7 @@ function showPopup(d,c){
   var statusOpts=['','검토중','실사중','계약완료','거래완료','중단'];
   var curStatus=d['Deal Status']||'';
   var selHtml=statusOpts.map(function(o){return'<option value="'+o+'"'+(o===curStatus?' selected':'')+'>'+( o||'-- 선택 --')+'</option>';}).join('');
+  var noteVal=(d['Note']||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   popEl.innerHTML='<button class="kk-popup-close">✕</button>'+
     '<div class="pn">'+d.Name+'</div><div class="pa">'+d.Address+'</div><div class="pp">'+fmtP(d['Asking Price'])+'</div>'+
     '<div style="margin-bottom:8px"><div class="pk" style="margin-bottom:4px">DEAL STATUS</div>'+
@@ -271,6 +355,8 @@ function showPopup(d,c){
     ['Initial Date','Contact Point'].map(function(k){var v=k==='Initial Date'?fmtDate(d[k]):(d[k]||'-');return'<div><div class="pk">'+k+'</div><div class="pv">'+v+'</div></div>';}).join('')+
     ['Land Price/py','FAR/py','Land Area(py)'].map(function(k){return'<div><div class="pk">'+k+'</div><div class="pv">'+fmtNum(d[k])+'</div></div>';}).join('')+
     '</div>'+
+    '<div style="margin-top:10px"><div class="pk" style="margin-bottom:4px">NOTE</div>'+
+    '<textarea id="pop-note" class="pop-note" placeholder="메모를 입력하세요...">'+noteVal+'</textarea></div>'+
     '<button class="pe" id="pop-edit">✎ 수정하기</button>';
   popEl.querySelector('.kk-popup-close').onclick=function(){closeCurrentPopup();};
   popEl.querySelector('#pop-edit').onclick=(function(id){return function(){openForm(id);};})(d.id);
@@ -282,61 +368,60 @@ function showPopup(d,c){
       try{await apiPost({action:'upsert',deal:dd});}catch(e){}
     }
   };
+  popEl.querySelector('#pop-note').onblur=async function(){
+    var dd=find(d.id);
+    if(dd&&dd['Note']!==this.value){
+      dd['Note']=this.value;
+      try{await apiPost({action:'upsert',deal:dd});}catch(e){}
+    }
+  };
   _popOverlay.setPosition(new kakao.maps.LatLng(c[0],c[1]));
   _popOverlay.setMap(map);
 }
 
-function makeMarker(d,c){
-  if(!c)c=getCoords(d);if(!c)return;
-  var isSel=d.id===selId,sz=isSel?13:8;
+function makeMarker(d){
+  var c=getCoords(d);if(!c)return null;
+  var isSel=d.id===selId;
   var ds=d['Deal Status']||'';
   var col=STATUS_COLORS[ds]||'#94a3b8';
-  var mkEl=document.createElement('div');
-  mkEl.className='mk'+(isSel?' sel':'');
-  mkEl.style.cssText='width:'+(sz*2)+'px;height:'+(sz*2)+'px;font-size:'+(isSel?11:7)+'px;background:'+col;
-  mkEl.textContent=d.Name.charAt(0);
-  mkEl.onclick=(function(id){return function(){selectDeal(id,false);};})(d.id);
-  var overlay=new kakao.maps.CustomOverlay({position:new kakao.maps.LatLng(c[0],c[1]),content:mkEl,xAnchor:0.5,yAnchor:0.5,zIndex:2});
-  overlay.setMap(map);
+  var sz=isSel?34:28;
+  var r=sz/2-1;
+  var ch=(d.Name||' ').charAt(0);
+  var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+sz+'" height="'+sz+'">'
+    +'<circle cx="'+(sz/2)+'" cy="'+(sz/2)+'" r="'+r+'" fill="'+col+'" stroke="'+(isSel?'#fff':'rgba(255,255,255,.35)')+'" stroke-width="'+(isSel?3:1.5)+'"/>'
+    +(isSel?'<circle cx="'+(sz/2)+'" cy="'+(sz/2)+'" r="'+(r+4)+'" fill="none" stroke="'+col+'" stroke-width="2" opacity=".5"/>':'')
+    +'<text x="'+(sz/2)+'" y="'+(sz/2+4)+'" text-anchor="middle" font-size="'+(isSel?12:9)+'" font-weight="700" fill="#fff" font-family="sans-serif">'+ch+'</text>'
+    +'</svg>';
+  var img=new kakao.maps.MarkerImage(
+    'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg),
+    new kakao.maps.Size(sz,sz),
+    {offset:new kakao.maps.Point(sz/2,sz/2)}
+  );
+  var mk=new kakao.maps.Marker({position:new kakao.maps.LatLng(c[0],c[1]),image:img,title:d.Name||''});
+  kakao.maps.event.addListener(mk,'click',(function(dd,cc){return function(){selectDeal(dd.id,false);showPopup(dd,cc);};})(d,c));
   if(isSel)setTimeout(function(){showPopup(d,c);},80);
-  return overlay;
+  return mk;
 }
 
 function renderMarkers(){
   closeCurrentPopup();
-  markerGroup.forEach(function(o){o.setMap(null);});
+  if(_clusterer){_clusterer.clear();}else{markerGroup.forEach(function(o){o.setMap(null);});}
   markerGroup=[];allMarkers={};
-  var deals=filtered();
-  // 1st pass: immediate render with cached/fallback coords
-  deals.forEach(function(d){
-    var c=getCoords(d);
-    var m=makeMarker(d,c);if(m){markerGroup.push(m);allMarkers[d.id]=m;}
+  var mks=[];
+  filtered().forEach(function(d){
+    var m=makeMarker(d);
+    if(m){markerGroup.push(m);allMarkers[d.id]=m;mks.push(m);}
   });
-  // 2nd pass: geocode uncached addresses in background (batch of 5)
-  var uncached=deals.filter(function(d){return d.Address&&d.Address!=='-'&&!_GC[d.Address];});
-  if(!uncached.length)return;
-  var idx=0;
-  function nextBatch(){
-    var batch=uncached.slice(idx,idx+5);idx+=5;
-    if(!batch.length){_saveGC();return;}
-    var done=0;
-    batch.forEach(function(d){
-      _geocodeAddr(d.Address,function(c){
-        if(c&&allMarkers[d.id]){
-          allMarkers[d.id].setPosition(new kakao.maps.LatLng(c[0],c[1]));
-        }
-        if(++done===batch.length)setTimeout(nextBatch,200);
-      });
-    });
-  }
-  nextBatch();
+  if(_clusterer){_clusterer.addMarkers(mks);}
 }
 
 /* ── Sidebar ── */
 function filtered(){
-  if(!q)return ALL;
+  var res=ALL;
+  if(statusFilter)res=res.filter(function(d){return(d['Deal Status']||'')==statusFilter;});
+  if(!q)return res;
   var lq=q.toLowerCase();
-  return ALL.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0;});
+  return res.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0;});
 }
 function find(id){for(var i=0;i<ALL.length;i++)if(ALL[i].id===id)return ALL[i];return null;}
 
@@ -400,8 +485,35 @@ var si=document.getElementById('srch-in'),sc=document.getElementById('srch-clr')
 si.oninput=function(){q=this.value;sc.style.display=q?'block':'none';renderList();renderMarkers();};
 sc.onclick=function(){si.value='';q='';sc.style.display='none';renderList();renderMarkers();};
 
+/* ── Status Filter Chips ── */
+(function(){
+  var statuses=['검토중','실사중','계약완료','거래완료','중단'];
+  var fgColors={'검토중':'#60a5fa','실사중':'#a78bfa','계약완료':'#34d399','거래완료':'#f59e0b','중단':'#f87171'};
+  var wrap=document.getElementById('status-filter');
+  var allChip=document.createElement('button');
+  allChip.className='sf-chip active';allChip.textContent='전체';allChip.dataset.val='';
+  allChip.style.color='#94a3b8';allChip.style.borderColor='#94a3b8';
+  wrap.appendChild(allChip);
+  statuses.forEach(function(s){
+    var c=document.createElement('button');c.className='sf-chip';c.textContent=s;c.dataset.val=s;
+    c.style.color=fgColors[s]||'#94a3b8';wrap.appendChild(c);
+  });
+  wrap.onclick=function(e){
+    var chip=e.target.closest('.sf-chip');if(!chip)return;
+    wrap.querySelectorAll('.sf-chip').forEach(function(c){
+      c.classList.remove('active');c.style.borderColor='transparent';
+    });
+    chip.classList.add('active');chip.style.borderColor=chip.style.color;
+    statusFilter=chip.dataset.val;
+    renderList();renderMarkers();
+  };
+  // init: 전체 chip border
+  allChip.style.borderColor='#94a3b8';
+})();
+
+
 /* ── Form ── */
-var FI=['f0','f1','f2','f3','f4','f5','f6','f7','f8'];
+var FI=['f0','f1','f2','f3','f4','f5','f6','f7','f8','f9'];
 var formEl=document.getElementById('form');
 
 function openForm(id){
@@ -409,7 +521,7 @@ function openForm(id){
   editId=d?d.id:null;
   document.getElementById('ftitle').textContent=d?'딜 수정':'새 딜 등록';
   document.getElementById('fsav').textContent=d?'수정 완료':'등록하기';
-  var keys=['Name','Address','Initial Date','Contact Point','Asking Price','Land Price/py','FAR/py','Land Area(py)','Deal Status'];
+  var keys=['Name','Address','Initial Date','Contact Point','Asking Price','Land Price/py','FAR/py','Land Area(py)','Deal Status','Note'];
   keys.forEach(function(k,i){document.getElementById(FI[i]).value=d?(d[k]||''):'';});
   formEl.classList.add('on');
 }
@@ -421,7 +533,7 @@ function closeForm(){formEl.classList.remove('on');editId=null;}
 document.getElementById('fsav').onclick=async function(){
   var name=document.getElementById('f0').value.trim(),addr=document.getElementById('f1').value.trim();
   if(!name||!addr){alert('매물명과 주소는 필수입니다.');return;}
-  var keys=['Name','Address','Initial Date','Contact Point','Asking Price','Land Price/py','FAR/py','Land Area(py)','Deal Status'];
+  var keys=['Name','Address','Initial Date','Contact Point','Asking Price','Land Price/py','FAR/py','Land Area(py)','Deal Status','Note'];
   var deal={};keys.forEach(function(k,i){deal[k]=document.getElementById(FI[i]).value.trim();});
   if(editId){deal.id=editId;}else{deal.id=String(Date.now());}
   var btn=document.getElementById('fsav');btn.disabled=true;btn.textContent='저장 중...';
@@ -432,6 +544,11 @@ document.getElementById('fsav').onclick=async function(){
       for(var i=0;i<ALL.length;i++)if(ALL[i].id===editId){ALL[i]=deal;break;}
       selId=editId;
     }else{ALL.push(deal);selId=deal.id;}
+    /* 주소 저장 시 지오코드 캐시 갱신 */
+    try{localStorage.removeItem(GEO_CACHE_KEY+deal.id);}catch(e){}
+    if(_geo&&deal.Address&&deal.Address!=='-'){
+      geocodeDeals([deal],function(){renderMarkers();});
+    }
     closeForm();renderList();renderMarkers();
   }catch(e){alert('저장 실패: '+e.message);}
   btn.disabled=false;btn.textContent=editId?'수정 완료':'등록하기';
@@ -446,7 +563,20 @@ document.getElementById('gbtn').onclick=async function(){
 /* ── Init ── */
 kakao.maps.load(function(){
   map=new kakao.maps.Map(document.getElementById('map'),{center:new kakao.maps.LatLng(37.52,126.99),level:7});
-  geocoder=new kakao.maps.services.Geocoder();
+  _geo=new kakao.maps.services.Geocoder();
+  /* MarkerClusterer – SVG 원형 뱃지 */
+  function _clStyle(sz,fill,textColor){
+    var svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+sz+'" height="'+sz+'">'
+      +'<circle cx="'+(sz/2)+'" cy="'+(sz/2)+'" r="'+(sz/2-1)+'" fill="'+fill+'" stroke="rgba(255,255,255,.55)" stroke-width="2"/>'
+      +'</svg>';
+    return{width:sz+'px',height:sz+'px',
+      background:'url("data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)+'") no-repeat center/cover',
+      color:textColor,textAlign:'center',lineHeight:sz+'px',fontWeight:'800',fontSize:Math.round(sz*.32)+'px',fontFamily:'sans-serif'};
+  }
+  _clusterer=new kakao.maps.MarkerClusterer({
+    map:map,averageCenter:true,minLevel:5,disableClickZoom:false,
+    styles:[_clStyle(36,'rgba(59,130,246,.92)','#fff'),_clStyle(46,'rgba(245,158,11,.92)','#000'),_clStyle(56,'rgba(239,68,68,.92)','#fff')]
+  });
   _popEl=document.createElement('div');
   _popEl.className='kk-popup';
   _popEl.addEventListener('click',function(e){e.stopPropagation();});
@@ -460,6 +590,53 @@ kakao.maps.load(function(){
       return'<div class="dm-legend-row"><span class="dm-legend-dot" style="background:'+STATUS_COLORS[s]+'"></span><span class="dm-legend-label">'+s+'</span></div>';
     }).join('');
   document.getElementById('map').appendChild(lgd);
+  /* map address search bar – append to #wrap (not #map) to avoid Kakao event capture */
+  var msWrap=document.createElement('div');
+  msWrap.id='map-srch-wrap';
+  msWrap.innerHTML='<div id="map-srch-inner"><input id="map-srch-in" placeholder="지도에서 주소 검색..."/><button id="map-srch-btn">검색</button></div>';
+  document.getElementById('wrap').appendChild(msWrap);
+  var msInp=document.getElementById('map-srch-in'),msBtn=document.getElementById('map-srch-btn');
+  var _tmpMk=null,_tmpOv=null;
+  function clearTemp(){if(_tmpMk){_tmpMk.setMap(null);_tmpMk=null;}if(_tmpOv){_tmpOv.setMap(null);_tmpOv=null;}}
+  function mapSearch(){
+    var addr=msInp.value.trim();if(!addr)return;
+    msBtn.textContent='검색중...';msBtn.disabled=true;
+    function done(lat,lng,label){
+      msBtn.textContent='검색';msBtn.disabled=false;
+      if(lat){placeSearchResult(lat,lng,label);}
+      else{alert('주소를 찾을 수 없습니다.\n(검색어: '+addr+')');}
+    }
+    /* 1) keywordSearch 우선 (장소명·약식주소 모두 처리) */
+    var ps=new kakao.maps.services.Places();
+    ps.keywordSearch(addr,function(r,s){
+      if(s==='OK'){done(parseFloat(r[0].y),parseFloat(r[0].x),r[0].place_name||addr);return;}
+      /* 2) addressSearch fallback (정형 주소) */
+      _geo.addressSearch(addr,function(r2,s2){
+        if(s2==='OK'){done(parseFloat(r2[0].y),parseFloat(r2[0].x),r2[0].address_name||addr);return;}
+        /* 3) Nominatim 최종 fallback */
+        fetch('https://nominatim.openstreetmap.org/search?format=json&q='+encodeURIComponent(addr+' 대한민국')+'&limit=1&accept-language=ko')
+          .then(function(res){return res.json();})
+          .then(function(data){
+            if(data&&data[0]){done(parseFloat(data[0].lat),parseFloat(data[0].lon),data[0].display_name||addr);}
+            else{done(null);}
+          })
+          .catch(function(){done(null);});
+      });
+    });
+  }
+  function placeSearchResult(lat,lng,label){
+    clearTemp();
+    var pos=new kakao.maps.LatLng(lat,lng);
+    map.setCenter(pos);map.setLevel(4);
+    _tmpMk=new kakao.maps.Marker({position:pos,map:map});
+    var el=document.createElement('div');
+    el.style.cssText='background:rgba(8,14,24,.92);border:1px solid rgba(245,158,11,.4);border-radius:6px;padding:5px 10px;font-size:11px;color:#f59e0b;white-space:nowrap;margin-bottom:8px;pointer-events:none;box-shadow:0 2px 10px rgba(0,0,0,.6)';
+    el.textContent=label;
+    _tmpOv=new kakao.maps.CustomOverlay({content:el,position:pos,xAnchor:0.5,yAnchor:1.8,map:map});
+    var rmv=kakao.maps.event.addListener(map,'click',function(){clearTemp();kakao.maps.event.removeListener(rmv);});
+  }
+  msBtn.onclick=mapSearch;
+  msInp.onkeydown=function(e){if(e.key==='Enter')mapSearch();};
   init();
 });
 
