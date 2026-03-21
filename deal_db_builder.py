@@ -432,18 +432,22 @@ def main():
         else:
             init_date = ""
 
-        # 숫자 포맷 (NaN → "-")
+        def str_val(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)):
+                return ""
+            return str(v)
+
         def num_val(v):
-            if pd.isna(v):
+            if v is None or (isinstance(v, float) and pd.isna(v)):
                 return "-"
             return round(float(v), 2)
 
         deals_json.append({
             "id": str(idx),
-            "Name": row["Project Name"] or "",
-            "Address": row["Address"] or "",
+            "Name": str_val(row["Project Name"]),
+            "Address": str_val(row["Address"]),
             "Initial Date": init_date,
-            "Contact Point": row["Sourcing Channel"] or "",
+            "Contact Point": str_val(row["Sourcing Channel"]),
             "Asking Price": num_val(row["Asking Price"]),
             "Land Price/py": num_val(row["Land price/Pyeong"]),
             "FAR/py": num_val(row["FAR/Pyeong"]),
