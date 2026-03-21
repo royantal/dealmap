@@ -167,7 +167,7 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 'use strict';
 
 /* ── 데이터 소스: deals.json (deal_db_builder.py가 생성) ── */
-var DATA_URL = 'deals.json';
+var DATA_URL = './deals.json';
 
 /* ── RAW DATA 제거됨: deals.json에서 로드 ── */
 
@@ -180,9 +180,7 @@ function showLoading(){document.getElementById('loading').classList.add('on');}
 function hideLoading(){document.getElementById('loading').classList.remove('on');}
 function showApiErr(msg){var el=document.getElementById('api-err');el.textContent=msg;el.style.display='block';}
 
-function fetchDeals(){
-  return fetch(DATA_URL+'?t='+Date.now()).then(function(r){return r.json();});
-}
+/* fetchDeals는 init()에 인라인됨 */
 
 var _geo=null; // Kakao Geocoder instance (set after kakao.maps.load)
 var GEO_CACHE_KEY='dm_geo_v4_';
@@ -241,7 +239,11 @@ function geocodeDeals(deals,done){
 async function init(){
   showLoading();
   try{
-    var data=await fetchDeals();
+    var resp=await fetch(DATA_URL+'?t='+Date.now());
+    if(!resp.ok)throw new Error('HTTP '+resp.status);
+    var text=await resp.text();
+    var data;
+    try{data=JSON.parse(text);}catch(pe){throw new Error('JSON 파싱 실패: '+pe.message+' (첫100자: '+text.substring(0,100)+')');}
     if(data.error)throw new Error(data.error);
     ALL=data;
     renderList();renderMarkers();
