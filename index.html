@@ -323,11 +323,13 @@ function showPopup(d,c){
   var noteVal=(d['Note']||'').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   popEl.innerHTML='<button class="kk-popup-close">✕</button>'+
     '<div class="pn">'+d.Name+'</div><div class="pa">'+d.Address+'</div>'+
-    '<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div class="pp" style="margin-bottom:0">'+fmtP(d['Asking Price'])+'</div>'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px"><div class="pp" style="margin-bottom:0">'+fmtP(d['Asking Price'])+'</div>'+
     '<select id="pop-status" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:6px;padding:4px 8px;color:#e2e8f0;font-size:11px;font-family:inherit;outline:none;cursor:pointer">'+selHtml+'</select></div>'+
     '<div class="pg">'+
     ['Initial Date','Contact Point'].map(function(k){var v=k==='Initial Date'?fmtDate(d[k]):(d[k]||'-');return'<div><div class="pk">'+k+'</div><div class="pv">'+v+'</div></div>';}).join('')+
-    ['Land Price/py','FAR/py','Land Area(py)'].map(function(k){return'<div><div class="pk">'+k+'</div><div class="pv">'+fmtNum(d[k])+'</div></div>';}).join('')+
+    '<div><div class="pk">Land Price</div><div class="pv">'+fmtNum(d['Land Price/py'])+(fmtNum(d['Land Price/py'])!=='-'?'억':'')+'</div></div>'+
+    '<div><div class="pk">FAR/py</div><div class="pv">'+fmtNum(d['FAR/py'])+'</div></div>'+
+    '<div><div class="pk">Land Area</div><div class="pv">'+fmtNum(d['Land Area(py)'])+(fmtNum(d['Land Area(py)'])!=='-'?' PY':'')+'</div></div>'+
     '</div>'+
     '<div style="margin-top:10px"><div class="pk" style="margin-bottom:4px">NOTE</div>'+
     '<textarea id="pop-note" class="pop-note" placeholder="메모를 입력하세요...">'+noteVal+'</textarea></div>'+
