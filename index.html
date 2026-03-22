@@ -41,8 +41,11 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 #sb-toggle{display:block}
 #sb{position:fixed;top:50px;bottom:0;left:-310px;z-index:550;transition:left .25s ease}
 #sb.open{left:0}
-#map-srch-wrap{left:0!important}
+#map-srch-wrap{left:0!important;justify-content:flex-end}
+#map-srch-inner{margin-left:40px;margin-right:8px}
 #map-srch-wrap.sb-open{display:none!important}
+.dm-legend.sb-open{display:none!important}
+.dm-legend{top:55px!important;right:10px}
 }
 /* Kakao popup */
 .kk-popup{position:relative;background:rgba(8,14,24,.97);border:1px solid rgba(255,255,255,.12);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.9);color:#e2e8f0;padding:14px 16px;min-width:230px;max-width:310px;margin-bottom:14px}
@@ -123,7 +126,7 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 </div>
 
 <div id="wrap">
-  <button id="sb-toggle" class="open" onclick="var sb=document.getElementById('sb'),ms=document.getElementById('map-srch-wrap');sb.classList.toggle('open');this.classList.toggle('open');this.textContent=sb.classList.contains('open')?'◀':'▶';if(ms)ms.classList.toggle('sb-open',sb.classList.contains('open'))">◀</button>
+  <button id="sb-toggle" class="open" onclick="var sb=document.getElementById('sb'),ms=document.getElementById('map-srch-wrap'),lg=document.getElementById('map-legend'),o;sb.classList.toggle('open');this.classList.toggle('open');o=sb.classList.contains('open');this.textContent=o?'◀':'▶';if(ms)ms.classList.toggle('sb-open',o);if(lg)lg.classList.toggle('sb-open',o)">◀</button>
   <div id="sb" class="open">
     <div id="srch-box">
       <span style="color:#475569">⌕</span>
@@ -308,7 +311,7 @@ function fmtDate(v){
 var map,_popEl,_popOverlay,_clusterer;
 var markerGroup=[];
 var allMarkers={};
-var STATUS_COLORS={'검토중':'#3b82f6','실사중':'#8b5cf6','계약완료':'#10b981','거래완료':'#f59e0b','중단':'#ef4444','미분류':'#94a3b8'};
+var STATUS_COLORS={'검토중':'#3b82f6','실사중':'#8b5cf6','계약완료':'#10b981','거래완료':'#f59e0b','중단':'#ef4444'};
 function closeCurrentPopup(){if(_popOverlay)_popOverlay.setMap(null);}
 
 function showPopup(d,c){
@@ -543,7 +546,8 @@ kakao.maps.load(function(){
   _popOverlay=new kakao.maps.CustomOverlay({content:_popEl,xAnchor:0.5,yAnchor:1,zIndex:3});
   /* legend */
   var lgd=document.createElement('div');
-  lgd.className='dm-legend';
+  lgd.className='dm-legend sb-open';
+  lgd.id='map-legend';
   lgd.style.cssText='position:absolute;top:10px;right:10px;z-index:100;pointer-events:none';
   lgd.innerHTML='<div class="dm-legend-title">DEAL STATUS</div>'+
     Object.keys(STATUS_COLORS).map(function(s){
