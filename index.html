@@ -34,6 +34,15 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 .tc{background:rgba(148,163,184,.1);color:#64748b}
 .td{background:rgba(148,163,184,.07);color:#475569;font-size:9px}
 #map{flex:1;position:relative}
+/* Sidebar toggle */
+#sb-toggle{display:none;position:fixed;top:58px;left:0;z-index:600;background:rgba(10,15,26,.92);border:1px solid rgba(255,255,255,.1);border-left:none;border-radius:0 8px 8px 0;padding:8px 6px;cursor:pointer;color:#94a3b8;font-size:16px;line-height:1;font-family:inherit;transition:left .25s ease}
+#sb-toggle.open{left:310px}
+@media(max-width:768px){
+#sb-toggle{display:block}
+#sb{position:fixed;top:50px;bottom:0;left:-310px;z-index:550;transition:left .25s ease}
+#sb.open{left:0}
+#map-srch-wrap{left:0!important}
+}
 /* Kakao popup */
 .kk-popup{position:relative;background:rgba(8,14,24,.97);border:1px solid rgba(255,255,255,.12);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.9);color:#e2e8f0;padding:14px 16px;min-width:230px;max-width:310px;margin-bottom:14px}
 .kk-popup::after{content:'';position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);border:12px solid transparent;border-top-color:rgba(8,14,24,.97);border-bottom:none}
@@ -113,7 +122,8 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 </div>
 
 <div id="wrap">
-  <div id="sb">
+  <button id="sb-toggle" class="open" onclick="var sb=document.getElementById('sb');sb.classList.toggle('open');this.classList.toggle('open');this.textContent=sb.classList.contains('open')?'◀':'▶'">◀</button>
+  <div id="sb" class="open">
     <div id="srch-box">
       <span style="color:#475569">⌕</span>
       <input id="srch-in" placeholder="매물명, 주소, Contact 검색..."/>
