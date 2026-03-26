@@ -391,11 +391,11 @@ function renderMarkers(){
 
 /* ── Sidebar ── */
 function filtered(){
-  var res=ALL;
+  var res=ALL.slice();
   if(statusFilter)res=res.filter(function(d){return(d['Deal Status']||'')==statusFilter;});
-  if(!q)return res;
-  var lq=q.toLowerCase();
-  return res.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0||(d['Initial Date']||'').indexOf(lq)>=0;});
+  if(q){var lq=q.toLowerCase();res=res.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0||(d['Initial Date']||'').indexOf(lq)>=0;});}
+  res.sort(function(a,b){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;return da>db?-1:da<db?1:0;});
+  return res;
 }
 function find(id){for(var i=0;i<ALL.length;i++)if(ALL[i].id===id)return ALL[i];return null;}
 
