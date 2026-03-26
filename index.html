@@ -110,6 +110,10 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 .sf-chip{padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid transparent;background:rgba(255,255,255,.05);color:#64748b;transition:all .15s;white-space:nowrap}
 .sf-chip:hover{border-color:rgba(255,255,255,.15);color:#94a3b8}
 .sf-chip.active{border-color:currentColor}
+#sort-bar{display:flex;gap:3px;padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0;overflow-x:auto}
+.sort-chip{padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;cursor:pointer;border:1px solid transparent;background:rgba(255,255,255,.03);color:#475569;transition:all .15s;white-space:nowrap}
+.sort-chip:hover{color:#94a3b8}
+.sort-chip.active{border-color:#f59e0b;color:#f59e0b;background:rgba(245,158,11,.08)}
 </style>
 </head>
 <body>
@@ -134,6 +138,7 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
       <button id="srch-clr">✕</button>
     </div>
     <div id="status-filter"></div>
+    <div id="sort-bar"></div>
     <div id="list"></div>
   </div>
   <div id="map"></div>
@@ -187,7 +192,7 @@ var DATA_URL = './deals.json';
 
 var ALL = []; // deals.json 에서 로드
 
-var selId=null, editId=null, q='', statusFilter='';
+var selId=null, editId=null, q='', statusFilter='', sortKey='date';
 
 /* ── API 헬퍼 ── */
 function showLoading(){document.getElementById('loading').classList.add('on');}
@@ -390,11 +395,20 @@ function renderMarkers(){
 }
 
 /* ── Sidebar ── */
+function numParse(v){if(!v||v==='-')return-Infinity;var n=parseFloat(v);return isNaN(n)?-Infinity:n;}
+var STATUS_ORDER={'검토중':0,'실사중':1,'계약완료':2,'거래완료':3,'중단':4};
 function filtered(){
   var res=ALL.slice();
   if(statusFilter)res=res.filter(function(d){return(d['Deal Status']||'')==statusFilter;});
   if(q){var lq=q.toLowerCase();res=res.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0||(d['Initial Date']||'').indexOf(lq)>=0;});}
-  res.sort(function(a,b){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;return da>db?-1:da<db?1:0;});
+  res.sort(function(a,b){
+    if(sortKey==='date'){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;return da>db?-1:da<db?1:0;}
+    if(sortKey==='status'){var sa=STATUS_ORDER[a['Deal Status']]!=null?STATUS_ORDER[a['Deal Status']]:99,sb=STATUS_ORDER[b['Deal Status']]!=null?STATUS_ORDER[b['Deal Status']]:99;return sa-sb;}
+    if(sortKey==='price'){return numParse(b['Asking Price'])-numParse(a['Asking Price']);}
+    if(sortKey==='land'){return numParse(b['Land Price/py'])-numParse(a['Land Price/py']);}
+    if(sortKey==='far'){return numParse(b['FAR/py'])-numParse(a['FAR/py']);}
+    return 0;
+  });
   return res;
 }
 function find(id){for(var i=0;i<ALL.length;i++)if(ALL[i].id===id)return ALL[i];return null;}
@@ -482,6 +496,22 @@ sc.onclick=function(){si.value='';q='';sc.style.display='none';renderList();rend
   allChip.style.borderColor='#94a3b8';
 })();
 
+/* ── Sort Bar ── */
+(function(){
+  var sorts=[{key:'date',label:'날짜순'},{key:'status',label:'상태순'},{key:'price',label:'금액순'},{key:'land',label:'Land Price순'},{key:'far',label:'FAR/py순'}];
+  var bar=document.getElementById('sort-bar');
+  sorts.forEach(function(s){
+    var c=document.createElement('button');c.className='sort-chip'+(s.key===sortKey?' active':'');c.textContent=s.label;c.dataset.key=s.key;
+    bar.appendChild(c);
+  });
+  bar.onclick=function(e){
+    var chip=e.target.closest('.sort-chip');if(!chip)return;
+    bar.querySelectorAll('.sort-chip').forEach(function(c){c.classList.remove('active');});
+    chip.classList.add('active');
+    sortKey=chip.dataset.key;
+    renderList();renderMarkers();
+  };
+})();
 
 /* ── Form ── */
 var FI=['f0','f1','f2','f3','f4','f5','f6','f7','f8','f9'];
