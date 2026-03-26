@@ -110,10 +110,15 @@ html,body{height:100%;overflow:hidden;font-family:'Apple SD Gothic Neo','Noto Sa
 .sf-chip{padding:3px 9px;border-radius:20px;font-size:10px;font-weight:700;cursor:pointer;border:1px solid transparent;background:rgba(255,255,255,.05);color:#64748b;transition:all .15s;white-space:nowrap}
 .sf-chip:hover{border-color:rgba(255,255,255,.15);color:#94a3b8}
 .sf-chip.active{border-color:currentColor}
-#sort-bar{display:flex;gap:3px;padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0;overflow-x:auto}
-.sort-chip{padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;cursor:pointer;border:1px solid transparent;background:rgba(255,255,255,.03);color:#475569;transition:all .15s;white-space:nowrap}
+#sort-bar{display:flex;gap:3px;padding:5px 10px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0;overflow-x:auto;position:relative}
+.sort-chip{padding:3px 8px;border-radius:20px;font-size:9px;font-weight:600;cursor:pointer;border:1px solid transparent;background:rgba(255,255,255,.03);color:#475569;transition:all .15s;white-space:nowrap;position:relative}
 .sort-chip:hover{color:#94a3b8}
 .sort-chip.active{border-color:#f59e0b;color:#f59e0b;background:rgba(245,158,11,.08)}
+.sort-drop{display:none;position:absolute;top:100%;left:0;margin-top:4px;background:rgba(10,15,26,.97);border:1px solid rgba(255,255,255,.12);border-radius:8px;padding:4px 0;z-index:700;min-width:90px;box-shadow:0 8px 24px rgba(0,0,0,.6)}
+.sort-drop.on{display:block}
+.sort-opt{display:block;width:100%;padding:6px 12px;background:none;border:none;color:#94a3b8;font-size:10px;font-weight:600;cursor:pointer;text-align:left;font-family:inherit;white-space:nowrap}
+.sort-opt:hover{background:rgba(245,158,11,.1);color:#f59e0b}
+.sort-opt.active{color:#f59e0b}
 </style>
 </head>
 <body>
@@ -192,7 +197,7 @@ var DATA_URL = './deals.json';
 
 var ALL = []; // deals.json 에서 로드
 
-var selId=null, editId=null, q='', statusFilter='', sortKey='date';
+var selId=null, editId=null, q='', statusFilter='', sortKey='date', sortDir='desc';
 
 /* ── API 헬퍼 ── */
 function showLoading(){document.getElementById('loading').classList.add('on');}
@@ -396,17 +401,17 @@ function renderMarkers(){
 
 /* ── Sidebar ── */
 function numParse(v){if(!v||v==='-')return-Infinity;var n=parseFloat(v);return isNaN(n)?-Infinity:n;}
-var STATUS_ORDER={'검토중':0,'실사중':1,'계약완료':2,'거래완료':3,'중단':4};
 function filtered(){
   var res=ALL.slice();
   if(statusFilter)res=res.filter(function(d){return(d['Deal Status']||'')==statusFilter;});
   if(q){var lq=q.toLowerCase();res=res.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0||(d['Initial Date']||'').indexOf(lq)>=0;});}
+  var dir=sortDir==='asc'?1:-1;
   res.sort(function(a,b){
-    if(sortKey==='date'){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;return da>db?-1:da<db?1:0;}
-    if(sortKey==='status'){var sa=STATUS_ORDER[a['Deal Status']]!=null?STATUS_ORDER[a['Deal Status']]:99,sb=STATUS_ORDER[b['Deal Status']]!=null?STATUS_ORDER[b['Deal Status']]:99;return sa-sb;}
-    if(sortKey==='price'){return numParse(b['Asking Price'])-numParse(a['Asking Price']);}
-    if(sortKey==='land'){return numParse(b['Land Price/py'])-numParse(a['Land Price/py']);}
-    if(sortKey==='far'){return numParse(b['FAR/py'])-numParse(a['FAR/py']);}
+    if(sortKey==='date'){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;return da>db?-dir:da<db?dir:0;}
+    if(sortKey==='status'){var sa=a['Deal Status']||'',sb=b['Deal Status']||'';return sa>sb?dir:sa<sb?-dir:0;}
+    if(sortKey==='price'){return dir*(numParse(b['Asking Price'])-numParse(a['Asking Price']));}
+    if(sortKey==='land'){return dir*(numParse(b['Land Price/py'])-numParse(a['Land Price/py']));}
+    if(sortKey==='far'){return dir*(numParse(b['FAR/py'])-numParse(a['FAR/py']));}
     return 0;
   });
   return res;
@@ -498,19 +503,46 @@ sc.onclick=function(){si.value='';q='';sc.style.display='none';renderList();rend
 
 /* ── Sort Bar ── */
 (function(){
-  var sorts=[{key:'date',label:'날짜순'},{key:'status',label:'상태순'},{key:'price',label:'금액순'},{key:'land',label:'Land Price순'},{key:'far',label:'FAR/py순'}];
+  var sorts=[
+    {key:'date',label:'날짜',opts:[{v:'desc',t:'최신순'},{v:'asc',t:'오래된순'}]},
+    {key:'status',label:'상태',opts:[{v:'검토중',t:'검토중'},{v:'실사중',t:'실사중'},{v:'계약완료',t:'계약완료'},{v:'거래완료',t:'거래완료'},{v:'중단',t:'중단'}]},
+    {key:'price',label:'금액',opts:[{v:'desc',t:'높은순'},{v:'asc',t:'낮은순'}]},
+    {key:'land',label:'Land Price',opts:[{v:'desc',t:'높은순'},{v:'asc',t:'낮은순'}]},
+    {key:'far',label:'FAR/py',opts:[{v:'desc',t:'높은순'},{v:'asc',t:'낮은순'}]}
+  ];
   var bar=document.getElementById('sort-bar');
+  var openDrop=null;
+  function closeAll(){if(openDrop){openDrop.classList.remove('on');openDrop=null;}}
   sorts.forEach(function(s){
-    var c=document.createElement('button');c.className='sort-chip'+(s.key===sortKey?' active':'');c.textContent=s.label;c.dataset.key=s.key;
-    bar.appendChild(c);
+    var wrap=document.createElement('div');wrap.style.position='relative';
+    var chip=document.createElement('button');chip.className='sort-chip'+(s.key===sortKey?' active':'');chip.textContent=s.label;chip.dataset.key=s.key;
+    var drop=document.createElement('div');drop.className='sort-drop';
+    s.opts.forEach(function(o){
+      var btn=document.createElement('button');btn.className='sort-opt';btn.textContent=o.t;btn.dataset.val=o.v;
+      btn.onclick=function(e){
+        e.stopPropagation();
+        sortKey=s.key;
+        if(s.key==='status'){statusFilter=o.v;sortDir='asc';}
+        else{sortDir=o.v;statusFilter='';}
+        bar.querySelectorAll('.sort-chip').forEach(function(c){c.classList.remove('active');});
+        chip.classList.add('active');
+        chip.textContent=s.label+' · '+o.t;
+        /* reset status filter chips */
+        var sfWrap=document.getElementById('status-filter');
+        sfWrap.querySelectorAll('.sf-chip').forEach(function(c){c.classList.remove('active');c.style.borderColor='transparent';});
+        var allC=sfWrap.querySelector('.sf-chip');if(s.key==='status'){sfWrap.querySelectorAll('.sf-chip').forEach(function(c){if(c.dataset.val===o.v){c.classList.add('active');c.style.borderColor=c.style.color;}});}else{allC.classList.add('active');allC.style.borderColor=allC.style.color;}
+        closeAll();renderList();renderMarkers();
+      };
+      drop.appendChild(btn);
+    });
+    chip.onclick=function(e){
+      e.stopPropagation();
+      if(openDrop===drop){closeAll();return;}
+      closeAll();drop.classList.add('on');openDrop=drop;
+    };
+    wrap.appendChild(chip);wrap.appendChild(drop);bar.appendChild(wrap);
   });
-  bar.onclick=function(e){
-    var chip=e.target.closest('.sort-chip');if(!chip)return;
-    bar.querySelectorAll('.sort-chip').forEach(function(c){c.classList.remove('active');});
-    chip.classList.add('active');
-    sortKey=chip.dataset.key;
-    renderList();renderMarkers();
-  };
+  document.addEventListener('click',function(){closeAll();});
 })();
 
 /* ── Form ── */
