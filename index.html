@@ -207,7 +207,18 @@ function showApiErr(msg){var el=document.getElementById('api-err');el.textConten
 /* fetchDeals는 init()에 인라인됨 */
 
 var _geo=null; // Kakao Geocoder instance (set after kakao.maps.load)
-var GEO_CACHE_KEY='dm_geo_v4_';
+var GEO_CACHE_KEY='dm_geo_v5_';
+/* 서울+수도권 좌표 범위(대략): 위도 37.0~37.9, 경도 126.5~127.5. 범위 밖이면 동명 충돌(예: 다른 도시 "창동")로 간주 */
+function plausibleCoord(lat,lng){return lat>=37.0&&lat<=37.9&&lng>=126.5&&lng<=127.5;}
+/* 콤마 이후(다지번)는 잘라내고 첫 지번만 사용 */
+function normAddr(a){return(a||'').split(',')[0].trim();}
+/* Name에서 시/구 컨텍스트 추출 ("송파 풍납동..." → "송파", "도봉구 창동..." → "도봉구") */
+function ctxFromName(nm){
+  if(!nm)return '';
+  var m=nm.match(/(서울|경기|부산|인천|대구|대전|광주|울산|세종)/);if(m)return m[0];
+  m=nm.match(/[가-힣]+(?:시|구|군)/);if(m)return m[0];
+  return '';
+}
 function geocodeDeals(deals,done){
   var CONCURRENT=5; // 병렬 동시 요청 수
   var pending=[];
@@ -228,28 +239,46 @@ function geocodeDeals(deals,done){
     if(completed===total){renderMarkers();done();return;}
     dispatch();
   }
-  /* 이름에서 주소 힌트 추출: "이태원 128-12 공유오피스..." → "이태원 128-12" */
-  function addrHint(d){
-    var nm=d.Name||'';
-    /* 지번 패턴: 동명+번지 (예: 이태원 128-12, 갈월동 98-14) */
-    var m=nm.match(/[가-힣]+\s*\d+(?:-\d+)?/);
-    return m?m[0]+' '+(d.Address||''):(d.Address||'');
-  }
   function geoOne(d){
     running++;
-    /* 1차: 정형 주소 */
-    _geo.addressSearch(d.Address,function(r,s){
-      if(s==='OK'){saveCoord(d,parseFloat(r[0].y),parseFloat(r[0].x));oneDone();return;}
-      /* 2차: 이름에서 추출한 주소 힌트로 키워드 검색 */
-      var ps=new kakao.maps.services.Places();
-      var hint=addrHint(d);
-      ps.keywordSearch(hint,function(r2,s2){
-        if(s2==='OK'){saveCoord(d,parseFloat(r2[0].y),parseFloat(r2[0].x));oneDone();return;}
-        /* 3차: 이름 앞 3단어 + 주소 */
-        var q2=(d.Name||'').split(/\s+/).slice(0,3).join(' ')+' '+(d.Address||'');
-        ps.keywordSearch(q2,function(r3,s3){
-          if(s3==='OK')saveCoord(d,parseFloat(r3[0].y),parseFloat(r3[0].x));
-          oneDone();
+    var addr=normAddr(d.Address);
+    var ctx=ctxFromName(d.Name);
+    var ctxAddr=ctx?(ctx+' '+addr):addr;
+    var ps=new kakao.maps.services.Places();
+    /* 1차: 컨텍스트 + 주소 정형 검색 (있을 때만) */
+    function tryAddr(query,next){
+      _geo.addressSearch(query,function(r,s){
+        if(s==='OK'&&r.length){
+          var lat=parseFloat(r[0].y),lng=parseFloat(r[0].x);
+          if(plausibleCoord(lat,lng)){saveCoord(d,lat,lng);oneDone();return;}
+        }
+        next();
+      });
+    }
+    /* 2차: 컨텍스트 + 주소 키워드 검색 */
+    function tryKw(query,next){
+      ps.keywordSearch(query,function(r,s){
+        if(s==='OK'&&r.length){
+          var lat=parseFloat(r[0].y),lng=parseFloat(r[0].x);
+          if(plausibleCoord(lat,lng)){saveCoord(d,lat,lng);oneDone();return;}
+        }
+        next();
+      });
+    }
+    tryAddr(ctxAddr,function(){
+      tryAddr(addr,function(){
+        tryKw(ctxAddr,function(){
+          tryKw(addr,function(){
+            /* 마지막: 이름 앞 3단어 + 주소 */
+            var q=(d.Name||'').split(/\s+/).slice(0,3).join(' ')+' '+addr;
+            ps.keywordSearch(q,function(r,s){
+              if(s==='OK'&&r.length){
+                var lat=parseFloat(r[0].y),lng=parseFloat(r[0].x);
+                if(plausibleCoord(lat,lng))saveCoord(d,lat,lng);
+              }
+              oneDone();
+            });
+          });
         });
       });
     });
