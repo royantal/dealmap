@@ -434,14 +434,15 @@ function filtered(){
   var res=ALL.slice();
   if(statusFilter)res=res.filter(function(d){return(d['Deal Status']||'')==statusFilter;});
   if(q){var lq=q.toLowerCase();res=res.filter(function(d){return(d.Name||'').toLowerCase().indexOf(lq)>=0||(d.Address||'').toLowerCase().indexOf(lq)>=0||(d['Contact Point']||'').toLowerCase().indexOf(lq)>=0||(d['Initial Date']||'').indexOf(lq)>=0;});}
-  var dir=sortDir==='asc'?1:-1;
+  var dir=sortDir==='asc'?-1:1;
   res.sort(function(a,b){
-    if(sortKey==='date'){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;return da>db?-dir:da<db?dir:0;}
-    if(sortKey==='status'){var sa=a['Deal Status']||'',sb=b['Deal Status']||'';return sa>sb?dir:sa<sb?-dir:0;}
-    if(sortKey==='price'){return dir*(numParse(b['Asking Price'])-numParse(a['Asking Price']));}
-    if(sortKey==='land'){return dir*(numParse(b['Land Price/py'])-numParse(a['Land Price/py']));}
-    if(sortKey==='far'){return dir*(numParse(b['FAR/py'])-numParse(a['FAR/py']));}
-    return 0;
+    var cmp=0;
+    if(sortKey==='date'){var da=a['Initial Date']||'',db=b['Initial Date']||'';if(!da||da==='-')return 1;if(!db||db==='-')return-1;cmp=da>db?-1:da<db?1:0;}
+    else if(sortKey==='status'){var sa=a['Deal Status']||'',sb=b['Deal Status']||'';cmp=sa>sb?1:sa<sb?-1:0;}
+    else if(sortKey==='price'){cmp=numParse(b['Asking Price'])-numParse(a['Asking Price']);}
+    else if(sortKey==='land'){cmp=numParse(b['Land Price/py'])-numParse(a['Land Price/py']);}
+    else if(sortKey==='far'){cmp=numParse(b['FAR/py'])-numParse(a['FAR/py']);}
+    return dir*cmp;
   });
   return res;
 }
