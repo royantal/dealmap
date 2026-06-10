@@ -374,6 +374,15 @@ def main():
     filled = fill_address_from_project(result)
     log.info(f"4. Address 자동 채움: {filled}건")
 
+    # 중복 제거: 같은 Project Name + Initial Date 조합은 한 번만 유지
+    # (Dealsourcing 탭과 통합 탭에 같은 딜이 중복 저장되는 케이스)
+    before_dedup = len(result)
+    result = result.drop_duplicates(
+        subset=["Project Name", "Initial date of Review"], keep="first"
+    ).reset_index(drop=True)
+    dup_removed = before_dedup - len(result)
+    log.info(f"4-2. 중복 제거: {dup_removed}건")
+
     log.info(f"5. 총 {len(result)}건 취합 완료")
     log.info(f"   연도별: {result.groupby('Year').size().to_dict()}")
     log.info(f"   탭별:   {result.groupby('Source_Tab').size().to_dict()}")

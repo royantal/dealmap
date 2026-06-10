@@ -1,0 +1,8 @@
+# 로그 파일
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
