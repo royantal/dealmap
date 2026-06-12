@@ -19,8 +19,11 @@ from openpyxl.styles import Font, PatternFill, Alignment
 
 ssl._create_default_https_context = ssl._create_unverified_context
 
+# ── 기준 디렉터리 (스크립트 위치) ──
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ── 로깅 설정 ──
-LOG_FILE = "/Users/juyoungeun/Project/dealmap-pages/deal_db_builder.log"
+LOG_FILE = os.path.join(BASE_DIR, "deal_db_builder.log")
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -32,8 +35,8 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 SHEET_ID = "1Sg5R-kVXuAjVyfkBkBq-5S1ntdGxzsJSZIUFq1xELU8"
-OUTPUT_FILE = "/Users/juyoungeun/Project/dealmap-pages/deal_database.xlsx"
-OUTPUT_JSON = "/Users/juyoungeun/Project/dealmap-pages/deals.json"
+OUTPUT_FILE = os.path.join(BASE_DIR, "deal_database.xlsx")
+OUTPUT_JSON = os.path.join(BASE_DIR, "deals.json")
 
 # ── 취합 대상 탭 (탭 이름에 포함되는 키워드) ──
 TARGET_DEALSOURCING = ["2025", "2026"]  # 2024 제외
@@ -84,6 +87,14 @@ NUMERIC_COL_START = 18  # "Asking Price" = S열
 NUMERIC_COL_END = 30    # "NRA(pyeong)"  = AE열
 
 NUMERIC_COLS = HEADER[NUMERIC_COL_START:NUMERIC_COL_END + 1]
+
+# ── Deal Status 매핑 ──
+# 통합(마스터) 탭의 Status 컬럼(영문)을 DealMap UI 상태값(한글)으로 변환.
+# UI 상태값: 검토중 / 실사중 / 계약완료 / 거래완료 / 중단
+STATUS_MAP = {
+    "Dropped": "중단",
+    "In Progress": "검토중",
+}
 
 
 def extract_year_from_tab(tab_name):
@@ -291,6 +302,11 @@ def fill_address_from_project(result):
 
 def git_push(repo_dir):
     """변경된 deals.json, deal_database.xlsx를 자동 커밋 & 푸시"""
+    # DEALMAP_NO_PUSH 환경변수가 설정되면 자동 커밋/푸시를 건너뛴다 (로컬 테스트용)
+    if os.environ.get("DEALMAP_NO_PUSH"):
+        log.info("8. Git: DEALMAP_NO_PUSH 설정됨 — push 생략")
+        return
+
     def run(cmd):
         return subprocess.run(
             cmd, cwd=repo_dir, capture_output=True, text=True, timeout=60
@@ -374,6 +390,20 @@ def main():
     filled = fill_address_from_project(result)
     log.info(f"4. Address 자동 채움: {filled}건")
 
+    # ── Deal Status 룩업 (중복 제거 전에 생성) ──
+    # 통합(마스터) 탭의 Status 컬럼(Dropped / In Progress)이 권위 소스.
+    # 중복 제거로 통합 행이 사라지기 전에 (Project Name, Initial Date) → Status 맵을 만들어,
+    # 최종적으로 Dealsourcing 행이 keep 되더라도 통합의 상태값을 보존한다.
+    def _date_key(d):
+        return d.strftime("%Y-%m-%d") if pd.notna(d) and hasattr(d, "strftime") else ""
+
+    tong_mask = result["Source_Tab"].astype(str).str.contains("통합", na=False) & result["Status"].notna()
+    status_lookup = {}
+    for _, rr in result[tong_mask].iterrows():
+        k = (str(rr["Project Name"]).strip(), _date_key(rr["Initial date of Review"]))
+        status_lookup.setdefault(k, str(rr["Status"]).strip())
+    log.info(f"4-1. Status 룩업: {len(status_lookup)}건 (통합 탭 기준)")
+
     # 중복 제거: 같은 Project Name + Initial Date 조합은 한 번만 유지
     # (Dealsourcing 탭과 통합 탭에 같은 딜이 중복 저장되는 케이스)
     before_dedup = len(result)
@@ -451,6 +481,14 @@ def main():
                 return "-"
             return round(float(v), 2)
 
+        # 통합 탭 룩업에서 상태를 가져오고(없으면 행 자체의 Status), 한글 UI 값으로 매핑.
+        raw_status = status_lookup.get(
+            (str_val(row["Project Name"]).strip(), init_date)
+        )
+        if raw_status is None and pd.notna(row["Status"]):
+            raw_status = str(row["Status"]).strip()
+        deal_status = STATUS_MAP.get(raw_status, "") if raw_status else ""
+
         deals_json.append({
             "id": str(idx),
             "Name": str_val(row["Project Name"]),
@@ -461,7 +499,7 @@ def main():
             "Land Price/py": num_val(row["Land price/Pyeong"]),
             "FAR/py": num_val(row["FAR/Pyeong"]),
             "Land Area(py)": num_val(row["Land area(py)"]),
-            "Deal Status": "중단",
+            "Deal Status": deal_status,
             "Note": "",
         })
 
